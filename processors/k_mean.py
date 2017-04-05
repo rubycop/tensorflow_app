@@ -1,21 +1,64 @@
+import mysql.connector
 import matplotlib.pyplot as plt
+
+import tensorflow.contrib.learn as learn
+from sklearn import datasets, metrics, preprocessing
+import collections
+from tensorflow.python.platform import gfile
 import numpy as np
 import tensorflow as tf
 
-points_n = 200
-clusters_n = 2
-iteration_n = 100
+config = {
+  'user'              :'root',
+  'password'          :'123456',
+  'host'              :'localhost',
+  'database'          :'crunchbase',
+  'raise_on_warnings' : True,
+}
 
-#Training inputs
-data = [
-[39750,3],
-[5000,1],
-[68069,5],
-[10125,3],
-[33000,3],
-[250,1],
-[100,1]
-]
+DEFAULT_ROW_NUM = 100
+
+def get_funding_total_usd_and_funding_rounds(conn, cursor):
+  query = (
+    "SELECT c.funding_rounds, "
+           "c.funding_total_usd "
+    "FROM cb_objects AS c "
+      "Inner Join cb_funding_rounds AS f "
+      "On c.id = f.object_id "
+    "WHERE c.entity_type = 'Company' AND "
+          "c.funding_total_usd IS NOT NULL "
+    "GROUP BY c.id "
+    "ORDER BY c.funding_total_usd "
+    "LIMIT %s;" % DEFAULT_ROW_NUM
+  )
+
+  cursor = conn.cursor()
+  cursor.execute(query)
+
+  res = []
+
+  for (
+    funding_rounds,
+    funding_total_usd
+  ) in cursor:
+    res.append([
+      int(funding_rounds),
+      int(funding_total_usd)/100
+    ])
+
+  return res
+
+# training data
+conn = mysql.connector.connect(**config)
+cursor = conn.cursor()
+
+data = get_funding_total_usd_and_funding_rounds(conn, cursor)
+
+cursor.close()
+conn.close()
+
+clusters_n = 2
+iteration_n = 1000
 
 points = tf.constant(data)
 centroids = tf.Variable(tf.slice(tf.random_shuffle(points), [0,0], [clusters_n, -1]))
@@ -46,12 +89,6 @@ with tf.Session() as sess:
 
   for step in xrange(iteration_n):
     [_, centroid_values, points_values, assignment_values] = sess.run([update_centroids, centroids, points, assignments])
-
-print centroid_values
-print '\n'
-print points_values
-print '\n'
-print assignment_values
 
 plt.scatter(points_values[:, 0], points_values[:, 1], c=assignment_values, s=50, alpha=0.6)
 plt.plot(centroid_values[:, 0], centroid_values[:, 1], 'kx', markersize=15)
